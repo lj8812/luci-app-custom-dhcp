@@ -1,42 +1,48 @@
 include $(TOPDIR)/rules.mk
 
-# 包基本信息
+# 插件基础信息
 PKG_NAME:=luci-app-custom-dhcp
 PKG_VERSION:=1.0
 PKG_RELEASE:=1
-PKG_MAINTAINER:=Your Name <your.email@example.com>
 
-# LuCI 元信息
-LUCI_TITLE:=Custom DHCP Client Management
-LUCI_DEPENDS:=+luci-base +luci-compat +uci
+# 定义包信息
+LUCI_TITLE:=Custom DHCP Configuration
+LUCI_DESCRIPTION:=A custom DHCP configuration interface for OpenWrt
+LUCI_DEPENDS:=+luci-base
 LUCI_PKGARCH:=all
 
-# 国际化配置
-LUCI_PKG_LANGUAGES:=zh_Hans
-
-include $(INCLUDE_DIR)/package.mk
+# 引入 OpenWrt 包管理配置
 include $(TOPDIR)/feeds/luci/luci.mk
 
-# 编译阶段生成 .lmo 文件
+# 编译阶段：将 .po 文件转换为 .lmo
 define Build/Compile
-    $(INSTALL_DIR) $(PKG_BUILD_DIR)/i18n
-    $(INSTALL_DATA) ./po/zh_Hans/custom-dhcp.po $(PKG_BUILD_DIR)/i18n/
-    $(call Build/Compile/Default)
+    # 创建临时编译目录
+    mkdir -p $(PKG_BUILD_DIR)/i18n
+    
+    # 遍历所有 .po 文件并生成 .lmo
+    $(foreach po_file, $(wildcard ${CURDIR}/po/*/*.po), \
+        po2lmo $(po_file) $(PKG_BUILD_DIR)/i18n/$(basename $(notdir $(po_file))).lmo; \
+    )
 endef
 
-# 安装阶段部署文件
+# 安装阶段：将文件复制到目标目录
 define Package/$(PKG_NAME)/install
-    # 安装翻译文件
-    $(INSTALL_DIR) $(1)/usr/lib/lua/luci/i18n
-    $(INSTALL_DATA) $(PKG_BUILD_DIR)/i18n/custom-dhcp.zh_Hans.lmo $(1)/usr/lib/lua/luci/i18n/
-    
-    # 安装 CBI 模块
-    $(INSTALL_DIR) $(1)/usr/lib/lua/luci/model/cbi/admin_custom-dhcp
-    $(INSTALL_DATA) ./luasrc/model/cbi/admin_custom-dhcp/clients.lua $(1)/usr/lib/lua/luci/model/cbi/admin_custom-dhcp/
-    
-    # 安装配置文件
+    # 安装 Lua 文件、配置和国际化文件
+    $(INSTALL_DIR) $(1)/usr/lib/lua/luci/controller
+    $(INSTALL_DIR) $(1)/usr/lib/lua/luci/model/cbi
     $(INSTALL_DIR) $(1)/etc/config
-    $(INSTALL_CONF) ./root/etc/config/custom-dhcp $(1)/etc/config/
+    $(INSTALL_DIR) $(1)/usr/lib/lua/luci/i18n
+    
+    # 复制 Lua 文件
+    $(INSTALL_DATA) ./files/luci/controller/custom-dhcp.lua $(1)/usr/lib/lua/luci/controller/
+    $(INSTALL_DATA) ./files/luci/model/cbi/custom-dhcp.lua $(1)/usr/lib/lua/luci/model/cbi/
+    
+    # 复制配置文件
+    $(INSTALL_CONF) ./files/etc/config/custom_dhcp $(1)/etc/config/
+    
+    # 复制国际化文件
+    $(INSTALL_DATA) $(PKG_BUILD_DIR)/i18n/*.lmo $(1)/usr/lib/lua/luci/i18n/
 endef
 
+# 调用 OpenWrt 构建函数
 $(eval $(call BuildPackage,$(PKG_NAME)))
