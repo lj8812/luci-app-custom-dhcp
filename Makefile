@@ -14,11 +14,11 @@ include $(TOPDIR)/feeds/luci/luci.mk
 
 define Package/$(PKG_NAME)/install
     # 安装LuCI组件
-    $(INSTALL_DIR) $(1)/usr/lib/lua/luci/controller
-    $(INSTALL_DATA) ./luasrc/controller/custom-dhcp.lua $(1)/usr/lib/lua/luci/controller/
+    $(INSTALL_DIR) $(1)/usr/lib/lua/luci/controller/admin
+    $(INSTALL_DATA) ./luasrc/controller/admin/custom-dhcp.lua $(1)/usr/lib/lua/luci/controller/admin/
     
-    $(INSTALL_DIR) $(1)/usr/lib/lua/luci/model/cbi
-    $(INSTALL_DATA) ./luasrc/model/cbi/clients.lua $(1)/usr/lib/lua/luci/model/cbi/
+    $(INSTALL_DIR) $(1)/usr/lib/lua/luci/model/cbi/admin_custom-dhcp
+    $(INSTALL_DATA) ./luasrc/model/cbi/admin_custom-dhcp/clients.lua $(1)/usr/lib/lua/luci/model/cbi/admin_custom-dhcp/
 
     # 安装配置文件
     $(INSTALL_DIR) $(1)/etc/config
