@@ -23,8 +23,8 @@ define Package/$(PKG_NAME)/install
     $(INSTALL_BIN) ./root/etc/init.d/custom-dhcp $(1)/etc/init.d/custom-dhcp
 
     # 控制器
-    $(INSTALL_DIR) $(1)/usr/lib/lua/luci/controller
-    $(INSTALL_DATA) ./luasrc/controller/admin/custom-dhcp.lua $(1)/usr/lib/lua/luci/controller/
+    $(INSTALL_DIR) $(1)/usr/lib/lua/luci/controller/admin
+    $(INSTALL_DATA) ./luasrc/controller/admin/custom-dhcp.lua $(1)/usr/lib/lua/luci/controller/admin/
 
     # CBI模型
     $(INSTALL_DIR) $(1)/usr/lib/lua/luci/model/cbi/admin_custom-dhcp
