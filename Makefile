@@ -1,5 +1,4 @@
 include $(TOPDIR)/rules.mk
-include $(TOPDIR)/feeds/luci/luci.mk
 
 PKG_NAME:=luci-app-custom-dhcp
 PKG_VERSION:=1.0
