@@ -1,0 +1,26 @@
+# 注意：UCI不支持注释行，此处仅为说明
+config global 'global'
+    option enable '1'
+    option leasetime '12h'
+
+config client 'iphone13'
+    option mac 'B2:54:B6:96:E4:8C'
+	option hostname 'iphone13'
+    option ip '192.168.0.168'
+    option gateway '192.168.0.11'
+    option dns '192.168.0.11'
+
+config client 'AAP'
+    option mac 'CC:29:BD:09:5C:EC'
+	option hostname 'AAP'
+    option ip '192.168.0.171'
+    option gateway '192.168.0.1'
+    option dns '192.168.0.1'
+	
+config client 'iphone12'
+    option mac 'AA:CB:E3:30:D2:FA'
+	option hostname 'iphone12'
+    option ip '192.168.0.128'
+    option gateway '192.168.0.1'
+    option dns '192.168.0.1'
+	
