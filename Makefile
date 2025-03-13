@@ -30,17 +30,6 @@ define Package/$(PKG_NAME)/install
     $(INSTALL_DIR) $(1)/usr/lib/lua/luci/model/cbi/admin_custom-dhcp
     $(INSTALL_DATA) ./luasrc/model/cbi/admin_custom-dhcp/clients.lua $(1)/usr/lib/lua/luci/model/cbi/admin_custom-dhcp/
 
-    # 国际化文件
-    $(INSTALL_DIR) $(1)/usr/lib/lua/luci/i18n
-    $(INSTALL_DATA) $(PKG_BUILD_DIR)/po/*/*.lmo $(1)/usr/lib/lua/luci/i18n/
-endef
-
-define Build/Compile
-    # 处理多语言翻译
-    $(foreach po,$(wildcard ./po/*/*.po), \
-        $(INSTALL_DIR) $(PKG_BUILD_DIR)/po/$$(basename $$(notdir $(po))); \
-        po2lmo $(po) $(PKG_BUILD_DIR)/po/$$(basename $$(notdir $(po)))/custom-dhcp.$$(shell echo $$(basename $$(notdir $(po))) | sed 's/zh_Hans/zh-cn/').lmo; \
-    )
 endef
 
 $(eval $(call BuildPackage,$(PKG_NAME)))
