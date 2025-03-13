@@ -43,9 +43,6 @@ define Package/$(PKG_NAME)/install
     $(INSTALL_DIR) $(1)/usr/lib/lua/luci/model/cbi/admin_custom-dhcp
     $(INSTALL_DATA) ./luasrc/model/cbi/admin_custom-dhcp/clients.lua $(1)/usr/lib/lua/luci/model/cbi/admin_custom-dhcp/
     
-    # 安装国际化文件
-    $(INSTALL_DIR) $(1)/usr/lib/lua/luci/i18n
-    $(INSTALL_DATA) $(PKG_BUILD_DIR)/i18n/*.lmo $(1)/usr/lib/lua/luci/i18n/
 endef
 
 # 调用构建函数
