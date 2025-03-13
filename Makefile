@@ -1,22 +1,22 @@
 include $(TOPDIR)/rules.mk
 
-# 注意：此处必须包含 package.mk，确保基础规则加载
-include $(INCLUDE_DIR)/package.mk
-
-# 先定义国际化变量
-LUCI_PKG_LANGUAGES:=zh_Hans
-
-# 再包含 luci.mk（此时构建系统能读取到 LUCI_PKG_LANGUAGES）
-include $(TOPDIR)/feeds/luci/luci.mk
-
+# 定义包信息（必须在包含 luci.mk 前）
 PKG_NAME:=luci-app-custom-dhcp
 PKG_VERSION:=1.0
 PKG_RELEASE:=1
 PKG_MAINTAINER:=Your Name <your.email@example.com>
 
+# LuCI 插件元信息
 LUCI_TITLE:=Custom DHCP Client Management
 LUCI_DEPENDS:=+luci-base +luci-compat +uci
 LUCI_PKGARCH:=all
+
+# 国际化配置
+LUCI_PKG_LANGUAGES:=zh_Hans
+
+# 包含必要的构建宏
+include $(INCLUDE_DIR)/package.mk
+include $(TOPDIR)/feeds/luci/luci.mk
 
 define Package/$(PKG_NAME)/install
     # 安装 LuCI 组件
@@ -35,5 +35,5 @@ define Package/$(PKG_NAME)/install
     $(INSTALL_BIN) ./root/etc/init.d/custom-dhcp $(1)/etc/init.d/
 endef
 
-# 调用 LuCI 构建宏（仅需一次）
+# 调用 LuCI 构建宏
 $(eval $(call BuildPackage,$(PKG_NAME)))
