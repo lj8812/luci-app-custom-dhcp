@@ -7,208 +7,238 @@ m = Map("custom-dhcp", translate("DHCP Client Management"),
     translate("Configure per-client DHCP options"))
 
 -- ███ 辅助函数 ████████████████████████████████████████████████
-local function safe_upper(str)
-    return tostring(str or ""):upper()
-end
-
-local mac = {
-    format = {
-        display = function(raw)
-            raw = safe_upper(raw):gsub("[^%x]", "")
-            return (#raw == 12) and raw:gsub("(..)(..)(..)(..)(..)(..)", "%1:%2:%3:%4:%5:%6") or nil
-        end,
-        storage = function(raw)
-            raw = safe_upper(raw):gsub("[^%x]", "")
-            return (#raw == 12) and raw or nil
-        end
-    }
-}
 
 local function validate_ipv4(value)
-    local cleaned = tostring(value or ""):gsub("%s+", "")
-    return ip.IPv4(cleaned) and cleaned or nil
+    value = tostring(value):gsub("%s+", "")
+    if #value == 0 then return nil end
+    
+    if not value:match("^%d+%.%d+%.%d+%.%d+$") then
+        return nil
+    end
+    
+    local a, b, c, d = value:match("^(%d+)%.(%d+)%.(%d+)%.(%d+)$")
+    a, b, c, d = tonumber(a), tonumber(b), tonumber(c), tonumber(d)
+    return (a <= 255 and b <= 255 and c <= 255 and d <= 255) and value or nil
 end
 
+local function format_mac_display(raw)
+    local clean = raw:upper():gsub("[^0-9A-F]", ""):sub(1,12)
+    if #clean ~= 12 then return nil end
+    return clean:gsub("(..)(..)(..)(..)(..)(..)", "%1:%2:%3:%4:%5:%6")
+end
+
+local function format_mac_storage(raw)
+    local clean = raw:upper():gsub("[^0-9A-F]", ""):sub(1,12)
+    return (#clean == 12) and clean or nil
+end
+
+-- 修正的主机名验证函数
 local function validate_hostname(value)
-    local cleaned = tostring(value or ""):gsub("%s+", ""):sub(1,63)
-    return cleaned:match("^[a-zA-Z][a-zA-Z0-9-]*[a-zA-Z0-9]$") and cleaned or nil
+    value = tostring(value):gsub("%s+", "")  -- 移除所有空格
+    if #value < 1 or #value > 63 then return nil end
+    
+    -- 允许字母开头，后续可包含字母/数字/连字符，不能以连字符结尾
+    if value:match("^[a-zA-Z][a-zA-Z0-9-]*$") and not value:match("-$") then
+        return value
+    end
+    return nil
 end
 
--- ███ 默认值配置 ████████████████████████████████████████████████
-local function get_network_defaults()
-    local cursor = luci.model.uci.cursor()
-    return {
-        lan_ip = cursor:get("network", "lan", "ipaddr") or "192.168.1.1",
-        netmask = cursor:get("network", "lan", "netmask") or "255.255.255.0",
-        dhcp_start = tonumber(cursor:get("dhcp", "lan", "start")) or 100
-    }
-end
+-- ███ 设备发现 ██████████████████████████████████████████████████
 
-local defaults = get_network_defaults()
-defaults.base_ip = (ip.IPv4(defaults.lan_ip, defaults.netmask):minhost() + defaults.dhcp_start - 1):string()
-
--- ███ 设备发现（修复重点）█████████████████████████████████████████████
-local function scan_devices()
+local function get_network_devices()
     local devices = {}
     
-    -- 1. 优先加载静态配置
-    uci:foreach("dhcp", "host", function(s)
-        if s.mac and s.ip then
-            local mac_fmt = mac.format.display(s.mac)
-            if mac_fmt then
-                devices[mac_fmt] = {
-                    ip = s.ip,
-                    static = true,
-                    active = false,
-                    source = "Static Config"
+    -- 优化后的ARP解析命令
+    local arp_scan = sys.exec([[
+        ip -4 neigh show 2>/dev/null | awk '
+            {
+                ip = ""; mac = ""
+                for (i=1; i<=NF; i++) {
+                    if ($i == "lladdr") {
+                        mac = $(i+1)
+                        ip = $1
+                        break
+                    }
                 }
-            end
-        end
-    end)
-
-    -- 2. 合并动态ARP设备
-    local arp_entries = sys.exec("ip -4 neigh show 2>/dev/null") or ""
-    for line in arp_entries:gmatch("[^\r\n]+") do
-        local ip_addr, raw_mac = line:match("^(%S+)%s+.+lladdr%s+(%S+)")
+                if (mac != "" && ip != "") {
+                    print ip, mac
+                }
+            }'
+    ]]) or ""
+    
+    -- 处理ARP条目
+    for line in arp_scan:gmatch("[^\r\n]+") do
+        local ip_addr, raw_mac = line:match("^(%S+)%s+(%S+)$")
         if ip_addr and raw_mac then
-            local mac_fmt = mac.format.display(raw_mac)
-            if mac_fmt and not devices[mac_fmt] then  -- 不覆盖静态配置
-                devices[mac_fmt] = {
-                    ip = ip_addr,
-                    active = true,
-                    source = "ARP"
-                }
+            local clean_mac = raw_mac:upper():gsub("[^0-9A-F]", "")
+            if #clean_mac == 12 then
+                local mac = format_mac_display(clean_mac)
+                if mac and validate_ipv4(ip_addr) then
+                    devices[mac] = {
+                        ip = ip_addr,
+                        active = true
+                    }
+                end
             end
         end
     end
 
-    -- 生成排序列表（静态置顶）
+    -- 合并静态配置
+    uci:foreach("dhcp", "host", function(s)
+        if s.mac and s.ip then
+            local mac = format_mac_display(s.mac)
+            if mac and validate_ipv4(s.ip) then
+                if not devices[mac] then
+                    devices[mac] = {
+                        ip = s.ip,
+                        static = true,
+                        active = false
+                    }
+                end
+            end
+        end
+    end)
+
+    -- 生成有效列表
     local sorted = {}
-    for mac_addr, data in pairs(devices) do
+    for mac, data in pairs(devices) do
         table.insert(sorted, {
-            mac = mac_addr,
+            mac = mac,
             display = string.format("%s %s | IP: %s | %s",
-                data.static and "★" or (data.active and "●" or "○"),
-                mac_addr,
+                data.active and "●" or "○",
+                mac,
                 data.ip,
-                data.source
-            ),
-            static = data.static or false
+                data.static and "静态" or "动态"
+            )
         })
     end
     
-    table.sort(sorted, function(a,b)
-        if a.static ~= b.static then
-            return a.static  -- 静态规则置顶
-        end
-        return a.mac < b.mac
-    end)
-    
+    table.sort(sorted, function(a,b) return a.mac < b.mac end)
     return sorted
 end
 
 -- ███ 界面配置 ██████████████████████████████████████████████████
+
 s = m:section(TypedSection, "client", translate("Clients"))
 s.template = "cbi/tblsection"
 s.addremove = true
 s.anonymous = true
 
--- MAC地址下拉列表（动态刷新）
-mac_input = s:option(ListValue, "mac", translate("MAC Address"))
-mac_input.rmempty = false
+-- MAC地址输入
+mac = s:option(Value, "mac", translate("MAC Address"))
+mac.rmempty = false
+mac:value("", "-- 选择设备 --")
 
-function mac_input.cfgvalue(self, section)
-    -- 每次访问时重新加载设备列表
-    self:value("", "-- 选择设备 --")
-    for _, dev in ipairs(scan_devices()) do
-        self:value(dev.mac, dev.display)
+-- 动态加载设备列表
+local ok, devices = pcall(get_network_devices)
+if ok and devices then
+    for _, dev in ipairs(devices) do
+        mac:value(dev.mac, dev.display)
     end
-    return self.super.cfgvalue(self, section)
 end
 
--- 主机名输入
+function mac.validate(self, value)
+    return format_mac_storage(value) and format_mac_display(value) or nil
+end
+
+-- 增强的主机名输入配置
 hostname = s:option(Value, "hostname", translate("Hostname"))
-hostname.placeholder = "留空自动生成（如：client-A1B2）"
-hostname.datatype = "hostname"
+hostname.rmempty = true
+hostname.placeholder = "字母开头，可包含数字和连字符（如：iphone13）"
+hostname.maxlength = 63
 
 function hostname.validate(self, value)
-    return value == "" or validate_hostname(value)
+    -- 输入预处理步骤
+    local clean_value = value and value:gsub("%s+", "")  -- 移除所有空格
+                                      :gsub("[^a-zA-Z0-9-]", "")  -- 移除非允许字符
+                                      or ""
+    return validate_hostname(clean_value) or nil
 end
 
--- IP配置字段
-local function create_ip_field(field, title)
-    local o = s:option(Value, field, title)
+-- IP类字段模板
+local function create_ip_field(title, field)
+    local o = s:option(Value, field, translate(title))
     o.datatype = "ip4addr"
     o.rmempty = false
-    o.default = defaults[field]
-    o.placeholder = defaults[field]
+    o.placeholder = "例如：192.168.1.1"
     
     function o.validate(self, value)
         return validate_ipv4(value) or nil
     end
     
+    function o.formvalue(self, section)
+        return validate_ipv4(Value.formvalue(self, section))
+    end
+    
     return o
 end
 
-create_ip_field("ip", "静态IP")
-create_ip_field("gateway", "网关")
-create_ip_field("dns", "DNS服务器")
+create_ip_field("Static IP", "ip")
+create_ip_field("Gateway", "gateway")
+create_ip_field("DNS Server", "dns")
 
--- ███ 配置处理 ██████████████████████████████████████████████████
+-- ███ 配置提交处理 ██████████████████████████████████████████████
+
 function m.on_commit(self)
     -- 清理旧配置
     uci:foreach("dhcp", "host", function(s)
-        if s[".name"] and s[".name"]:match("^cust_") then
-            pcall(uci.delete, "dhcp", s[".name"])
+        if s[".name"]:match("^cust_") then
+            uci:delete("dhcp", s[".name"])
         end
     end)
-    pcall(uci.commit, "dhcp")
-    
-    -- 处理新配置
+
     local dhcp_opts = {}
+    uci:foreach("dhcp", "dhcp_option", function(_, opt)
+        if not opt:match("^tag:cust_") then
+            table.insert(dhcp_opts, opt)
+        end
+    end)
+
+    -- 处理每个客户端配置
     uci:foreach("custom-dhcp", "client", function(s)
+        local raw_hostname = uci:get("custom-dhcp", s[".name"], "hostname") or ""
+        
+        -- 应用相同的清理逻辑
+        local clean_hostname = raw_hostname:gsub("%s+", "")
+                                          :gsub("[^a-zA-Z0-9-]", "")
+        
         local data = {
-            mac = mac.format.storage(uci:get("custom-dhcp", s[".name"], "mac")),
-            ip = validate_ipv4(uci:get("custom-dhcp", s[".name"], "ip")) or defaults.ip,
-            gw = validate_ipv4(uci:get("custom-dhcp", s[".name"], "gateway")) or defaults.gateway,
-            dns = validate_ipv4(uci:get("custom-dhcp", s[".name"], "dns")) or defaults.dns,
-            hostname = validate_hostname(uci:get("custom-dhcp", s[".name"], "hostname")) or ""
+            mac = format_mac_storage(uci:get("custom-dhcp", s[".name"], "mac") or ""),
+            ip = uci:get("custom-dhcp", s[".name"], "ip") or "",
+            gw = uci:get("custom-dhcp", s[".name"], "gateway") or "",
+            dns = uci:get("custom-dhcp", s[".name"], "dns") or "",
+            hostname = validate_hostname(clean_hostname) and clean_hostname or ""  -- 最终验证
         }
 
         if data.mac and data.ip and data.gw and data.dns then
-            -- 生成主机名
-            if data.hostname == "" then
-                local mac_part = data.mac:sub(-4):gsub("%W", ""):lower()
-                data.hostname = "client-"..mac_part
-            end
-
-            -- 生成唯一标识
-            local tag = string.format("cust_%s_%s",
-                data.mac:sub(-4),
-                data.ip:match("(%d+%.%d+)$"):gsub("%.", "")
-            )
-
+            local tag = "cust_"..data.mac:sub(-4).."_"..(data.ip:match("(%d+)$") or "0")
+            
             -- 写入DHCP配置
-            pcall(uci.set, "dhcp", tag, "host", {
-                mac = mac.format.display(data.mac),
+            uci:section("dhcp", "host", tag, {
+                mac = format_mac_display(data.mac),
                 ip = data.ip,
-                name = data.hostname,
+                name = data.hostname ~= "" and data.hostname or nil,
                 tag = tag
             })
 
-            -- 收集DHCP选项
-            table.insert(dhcp_opts, string.format("tag:%s,3,%s", tag, data.gw))
-            table.insert(dhcp_opts, string.format("tag:%s,6,%s", tag, data.dns))
+            -- 设置DHCP选项
+            table.insert(dhcp_opts, ("tag:%s,3,%s"):format(tag, data.gw))
+            table.insert(dhcp_opts, ("tag:%s,6,%s"):format(tag, data.dns))
         end
     end)
 
-    -- 提交配置并强制刷新
-    uci:set("dhcp", "lan", "dhcp_option", dhcp_opts)
-    if pcall(uci.commit, "dhcp") then
-        os.execute("sleep 1 && /etc/init.d/dnsmasq reload >/dev/null 2>&1")
-        luci.http.redirect(luci.dispatcher.build_url("admin/services/custom-dhcp"))
+    -- 更新DHCP配置
+    if #dhcp_opts > 0 then
+        uci:set("dhcp", "lan", "dhcp_option", dhcp_opts)
     else
-        luci.http.status(500, "配置保存失败")
+        pcall(uci.delete, "dhcp", "lan", "dhcp_option")
+    end
+
+    if uci:commit("dhcp") then
+        os.execute("sleep 1 && /etc/init.d/dnsmasq reload >/dev/null")
+    else
+        luci.http.status(500, "配置保存失败，请检查系统日志")
     end
 end
 
