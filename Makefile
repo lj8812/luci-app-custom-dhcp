@@ -33,7 +33,4 @@ endef
 PO_CONFIG:=../../build/i18n-config
 PO_LANGUAGES:=zh_Hans
 
-# 包含语言包支持
-include $(TOPDIR)/feeds/luci/luci-build.mk
-
 $(eval $(call BuildPackage,$(PKG_NAME)))
