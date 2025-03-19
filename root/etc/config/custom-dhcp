@@ -23,4 +23,10 @@ config client 'iphone12'
     option ip '192.168.0.128'
     option gateway '192.168.0.1'
     option dns '192.168.0.1'
-	
+
+config client 'iphone7'
+    option mac '1E:B6:E5:2B:B0:27'
+	option hostname 'iphone7'
+    option ip '192.168.0.145'
+    option gateway '192.168.0.1'
+    option dns '192.168.0.1'
